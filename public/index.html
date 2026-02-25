@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WhatsApp E2E Encrypted Chat</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div id="setup-container">
+        <h1>E2E Encrypted Chat</h1>
+        <p style="font-size: 0.8rem; color: #666; margin-bottom: 20px;">RSA/AES Client-Side Encryption</p>
+        <input type="text" id="username-input" placeholder="Enter Username">
+        <button id="join-btn">Generating Keys...</button>
+    </div>
+
+    <div id="chat-container" class="hidden">
+        <div id="sidebar">
+            <div id="sidebar-header">
+                <h3>Online Users</h3>
+            </div>
+            <ul id="user-list"></ul>
+
+            <!-- Security Console for Faculty -->
+            <div id="security-console">
+                <h4>🔐 Security Log</h4>
+                <div id="log-entries"></div>
+            </div>
+        </div>
+
+        <div id="main-chat">
+            <div id="chat-header">Select a user to start chatting</div>
+            <div id="messages"></div>
+            <div id="input-area">
+                <input type="text" id="message-input" placeholder="Type a message..." disabled>
+                <button id="send-btn" disabled>Send</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script type="module" src="chat.js"></script>
+</body>
+
+</html>
