@@ -29,6 +29,10 @@ const messagesEl = document.getElementById('messages');
 const messageInput = document.getElementById('message-input');
 const sendBtn = document.getElementById('send-btn');
 const chatHeader = document.getElementById('chat-header');
+const chatPartnerName = document.getElementById('chat-partner-name');
+const backBtn = document.getElementById('back-btn');
+const sidebar = document.getElementById('sidebar');
+const mainChat = document.getElementById('main-chat');
 const logEntries = document.getElementById('log-entries');
 
 function securityLog(message, type = '') {
@@ -101,11 +105,18 @@ function updateUserList() {
             li.classList.add('active');
         }
 
-        li.onclick = () => selectUser({
+        li.onclick = () => {
+        selectUser({
             id: member.id,
             username: member.info.username,
             publicKey: member.info.publicKey
         });
+        // Mobile toggle
+        if (window.innerWidth <= 768) {
+            sidebar.classList.add('mobile-hidden');
+            mainChat.classList.remove('mobile-hidden');
+        }
+    };
         userListEl.appendChild(li);
 
         if (!chatPartners.has(member.id)) {
@@ -171,7 +182,7 @@ async function selectUser(user) {
     const history = messageHistory.get(user.id) || [];
     history.forEach(msg => displayMessage(msg.sender, msg.text, msg.type));
 
-    chatHeader.textContent = user.username;
+    chatPartnerName.textContent = user.username;
     messageInput.disabled = false;
     sendBtn.disabled = false;
     messageInput.focus();
@@ -247,3 +258,14 @@ function displayMessage(sender, text, type) {
 messageInput.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') sendBtn.click();
 });
+
+// Back button for mobile
+backBtn.addEventListener('click', () => {
+    sidebar.classList.remove('mobile-hidden');
+    mainChat.classList.add('mobile-hidden');
+});
+
+// Initial mobile state
+if (window.innerWidth <= 768) {
+    mainChat.classList.add('mobile-hidden');
+}
