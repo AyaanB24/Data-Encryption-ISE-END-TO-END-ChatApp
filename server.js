@@ -10,9 +10,8 @@ const io = new Server(server);
 
 const PORT = process.env.PORT || 3000;
 
-// Serve static files from public and utils
+// Serve static files from public
 app.use(express.static(path.join(__dirname, 'public')));
-app.use('/utils', express.static(path.join(__dirname, 'utils')));
 
 // Store users and their public keys
 const users = new Map();

@@ -1,6 +1,6 @@
 
-import { generateRSAKeyPair, encryptAESKey, decryptAESKey } from '/utils/rsa.js';
-import { generateAESKey, exportAESKey, importAESKey, encryptMessage, decryptMessage } from '/utils/aes.js';
+import { generateRSAKeyPair, encryptAESKey, decryptAESKey } from './utils/rsa.js';
+import { generateAESKey, exportAESKey, importAESKey, encryptMessage, decryptMessage } from './utils/aes.js';
 
 const socket = io();
 
