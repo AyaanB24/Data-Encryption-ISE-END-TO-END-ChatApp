@@ -3,7 +3,6 @@ import { generateRSAKeyPair, encryptAESKey, decryptAESKey } from './utils/rsa.js
 import { generateAESKey, exportAESKey, importAESKey, encryptMessage, decryptMessage } from './utils/aes.js';
 
 // --- CONFIGURATION ---
-// These should match your Pusher dashboard
 const PUSHER_KEY = '9619457411b436b0306b';
 const PUSHER_CLUSTER = 'ap2';
 
@@ -32,7 +31,6 @@ const sendBtn = document.getElementById('send-btn');
 const chatHeader = document.getElementById('chat-header');
 const logEntries = document.getElementById('log-entries');
 
-// Utility to log security events
 function securityLog(message, type = '') {
     const entry = document.createElement('p');
     const time = new Date().toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -40,13 +38,12 @@ function securityLog(message, type = '') {
     logEntries.prepend(entry);
 }
 
-// Initialize RSA Keys on page load
 async function initKeys() {
     securityLog("Generating 2048-bit RSA Key Pair...", "log-success");
     const keys = await generateRSAKeyPair();
     myRSAPrivateKey = keys.privateKey;
     myRSAPublicKey = keys.publicKey;
-    securityLog("RSA Keys Ready (Public Key shared on Join)");
+    securityLog("RSA Keys Ready.");
     joinBtn.disabled = false;
     joinBtn.textContent = "Join Chat";
 }
@@ -55,12 +52,10 @@ joinBtn.textContent = "Generating Keys...";
 joinBtn.disabled = true;
 initKeys();
 
-// Join Chat
 joinBtn.addEventListener('click', () => {
     myUsername = usernameInput.value.trim();
     if (!myUsername) return alert("Please enter a username");
 
-    // Initialize Pusher
     pusher = new Pusher(PUSHER_KEY, {
         cluster: PUSHER_CLUSTER,
         authEndpoint: '/pusher/auth',
@@ -72,17 +67,15 @@ joinBtn.addEventListener('click', () => {
         }
     });
 
-    // Subscribe to Presence Channel
     presenceChannel = pusher.subscribe('presence-chat');
 
     presenceChannel.bind('pusher:subscription_succeeded', () => {
         myId = presenceChannel.members.me.id;
         setupContainer.classList.add('hidden');
         chatContainer.classList.remove('hidden');
-        securityLog(`Joined as ${myUsername}. RSA Public Key shared.`);
+        securityLog(`Joined as ${myUsername}. ID: ${myId.substring(0,8)}...`, "log-success");
         updateUserList();
         
-        // Subscribe to my own private channel for messages
         privateChannel = pusher.subscribe(`private-user-${myId}`);
         setupIncomingEvents();
     });
@@ -96,80 +89,83 @@ function updateUserList() {
     presenceChannel.members.each(member => {
         if (member.id === myId) return;
 
-        const user = {
-            id: member.id,
-            username: member.info.username,
-            publicKey: member.info.publicKey
-        };
-
         const li = document.createElement('li');
         li.innerHTML = `
             <div style="width:40px;height:40px;background:#ddd;border-radius:50%;margin-right:15px;display:flex;align-items:center;justify-content:center;color:#666;font-weight:bold;">
-                ${user.username[0].toUpperCase()}
+                ${member.info.username[0].toUpperCase()}
             </div>
-            <span>${user.username}</span>
+            <span>${member.info.username}</span>
         `;
 
-        if (activeChatPartner && activeChatPartner.id === user.id) {
+        if (activeChatPartner && activeChatPartner.id === member.id) {
             li.classList.add('active');
         }
 
-        li.onclick = () => selectUser(user);
+        li.onclick = () => selectUser({
+            id: member.id,
+            username: member.info.username,
+            publicKey: member.info.publicKey
+        });
         userListEl.appendChild(li);
 
-        if (!chatPartners.has(user.id)) {
-            chatPartners.set(user.id, { ...user, aesKey: null });
-            messageHistory.set(user.id, []);
-        } else {
-            const existing = chatPartners.get(user.id);
-            existing.username = user.username;
-            existing.publicKey = user.publicKey;
+        if (!chatPartners.has(member.id)) {
+            chatPartners.set(member.id, { 
+                id: member.id, 
+                username: member.info.username, 
+                publicKey: member.info.publicKey, 
+                aesKey: null 
+            });
+            messageHistory.set(member.id, []);
         }
     });
 }
 
 function setupIncomingEvents() {
-    // Receive AES Key
     privateChannel.bind('receive-aes-key', async ({ from, encryptedAESKey }) => {
-        securityLog("Received encrypted AES key from partner.");
-        securityLog("Decrypting AES key with MY RSA Private Key...", "log-encrypted");
+        securityLog(`Key Handshake received from ${from.substring(0,8)}...`);
+        try {
+            const rawAESKey = await decryptAESKey(encryptedAESKey, myRSAPrivateKey);
+            const aesKey = await importAESKey(rawAESKey);
 
-        const rawAESKey = await decryptAESKey(encryptedAESKey, myRSAPrivateKey);
-        const aesKey = await importAESKey(rawAESKey);
-
-        if (chatPartners.has(from)) {
-            chatPartners.get(from).aesKey = aesKey;
-        } else {
-            chatPartners.set(from, { aesKey });
-            messageHistory.set(from, []);
+            if (!chatPartners.has(from)) {
+                chatPartners.set(from, { id: from, aesKey: aesKey });
+                messageHistory.set(from, []);
+            } else {
+                chatPartners.get(from).aesKey = aesKey;
+            }
+            securityLog("Handshake Complete: Secure Channel Established.", "log-success");
+        } catch (err) {
+            securityLog("Handshake Failed: RSA Decryption Error.", "log-encrypted");
+            console.error(err);
         }
-        securityLog("Secure AES-GCM channel established.", "log-success");
     });
 
-    // Receive Message
     privateChannel.bind('receive-message', async ({ from, encryptedMsg }) => {
         const partner = chatPartners.get(from);
-        if (!partner || !partner.aesKey) return;
+        if (!partner || !partner.aesKey) {
+            securityLog("Error: Received message before handshake was complete.", "log-encrypted");
+            return;
+        }
 
-        securityLog("Received encrypted packet.");
-        securityLog(`Deciphering: ${encryptedMsg.ciphertext.substring(0, 25)}...`, "log-encrypted");
-
+        securityLog("Received encrypted packet. Deciphering...");
         const decryptedText = await decryptMessage(encryptedMsg, partner.aesKey);
 
-        if (decryptedText !== "[Decryption Error or Tampered Message]") {
-            securityLog("Integrity Verified (SHA-256 Match).", "log-success");
-            securityLog(`Decrypted text: "${decryptedText}"`);
+        if (decryptedText === "[Decryption Error or Tampered Message]") {
+            securityLog("SECURITY ALERT: Integrity Failure or Key Mismatch!", "log-encrypted");
         } else {
-            securityLog("INTEGRITY ERROR: Hash Mismatch!", "log-encrypted");
+            securityLog("Integrity Verified (SHA-256 Match).", "log-success");
         }
 
         saveAndDisplayMessage(from, partner.username || 'Stranger', decryptedText, 'received');
     });
 }
 
-// Select a user to chat with
 async function selectUser(user) {
     activeChatPartner = chatPartners.get(user.id);
+    if (!activeChatPartner) {
+        chatPartners.set(user.id, { ...user, aesKey: null });
+        activeChatPartner = chatPartners.get(user.id);
+    }
 
     messagesEl.innerHTML = '';
     const history = messageHistory.get(user.id) || [];
@@ -184,18 +180,15 @@ async function selectUser(user) {
         li.classList.toggle('active', li.querySelector('span').textContent === user.username);
     });
 
+    // If we don't have a shared key yet, generate one and send it
     if (!activeChatPartner.aesKey) {
         securityLog(`Initiating Handshake with ${user.username}...`);
         const aesKey = await generateAESKey();
         activeChatPartner.aesKey = aesKey;
 
-        securityLog("Exporting raw AES-256 key...");
         const rawAESKey = await exportAESKey(aesKey);
-
-        securityLog("Encrypting AES key with recipient's RSA Public Key...", "log-encrypted");
         const encryptedAESKey = await encryptAESKey(rawAESKey, user.publicKey);
 
-        // Share via API
         fetch('/api/share-key', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -205,24 +198,17 @@ async function selectUser(user) {
                 encryptedAESKey: encryptedAESKey
             })
         });
-        securityLog("Shared encrypted AES key with partner.");
+        securityLog("AES Key generated and shared via RSA.", "log-success");
     }
 }
 
-// Send Message
 sendBtn.addEventListener('click', async () => {
     const text = messageInput.value.trim();
     if (!text || !activeChatPartner || !activeChatPartner.aesKey) return;
 
-    securityLog(`Plaintext: "${text}"`);
-    securityLog("Encrypting with AES-GCM (256-bit)...");
-
+    securityLog("Encrypting message with AES-GCM...");
     const encryptedObj = await encryptMessage(text, activeChatPartner.aesKey);
 
-    securityLog(`Ciphertext: ${encryptedObj.ciphertext.substring(0, 25)}...`, "log-encrypted");
-    securityLog(`SHA-256 Hash Generated.`);
-
-    // Send via API
     fetch('/api/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -251,7 +237,8 @@ function displayMessage(sender, text, type) {
     msgDiv.className = `message ${type}`;
     msgDiv.innerHTML = `<strong>${sender}</strong><span>${text}</span>`;
     if (text === "[Decryption Error or Tampered Message]") {
-        msgDiv.innerHTML += `<span style="color:red;font-size:0.7rem;"> (Integrity Failure)</span>`;
+        msgDiv.style.background = "#fff0f0";
+        msgDiv.style.border = "1px solid #ffcccc";
     }
     messagesEl.appendChild(msgDiv);
     messagesEl.scrollTop = messagesEl.scrollHeight;
