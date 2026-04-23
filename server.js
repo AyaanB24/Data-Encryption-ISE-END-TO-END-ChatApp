@@ -1,64 +1,71 @@
 
 const express = require('express');
-const http = require('http');
-const { Server } = require('socket.io');
 const path = require('path');
+const Pusher = require('pusher');
 
 const app = express();
-const server = http.createServer(app);
-const io = new Server(server);
+app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
 
 const PORT = process.env.PORT || 3000;
+
+// Initialize Pusher
+// These should be set in Vercel Environment Variables
+const pusher = new Pusher({
+  appId: "2145695",
+  key: "9619457411b436b0306b",
+  secret: "56bdb6e4ce919fb4a12e",
+  cluster: "ap2",
+  useTLS: true
+});
 
 // Serve static files from public
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Store users and their public keys
-const users = new Map();
+// Pusher Auth Endpoint for Presence Channels
+app.post('/pusher/auth', (req, res) => {
+  const socketId = req.body.socket_id;
+  const channel = req.body.channel_name;
+  const username = req.body.username;
+  const publicKey = req.body.publicKey;
 
-io.on('connection', (socket) => {
-    console.log('User connected:', socket.id);
+  const presenceData = {
+    user_id: socketId,
+    user_info: {
+      username: username,
+      publicKey: publicKey
+    }
+  };
 
-    // User joins with a username and their RSA Public Key
-    socket.on('join', ({ username, publicKey }) => {
-        users.set(socket.id, { username, publicKey });
-        console.log(`${username} joined with public key.`);
-
-        // Broadcast updated user list
-        io.emit('user-list', Array.from(users.entries()).map(([id, data]) => ({
-            id,
-            username: data.username,
-            publicKey: data.publicKey
-        })));
-    });
-
-    // Forward encrypted AES key from sender to receiver
-    socket.on('share-aes-key', ({ to, encryptedAESKey }) => {
-        io.to(to).emit('receive-aes-key', {
-            from: socket.id,
-            encryptedAESKey
-        });
-    });
-
-    // Forward encrypted message
-    socket.on('chat-message', ({ to, encryptedMsg }) => {
-        io.to(to).emit('receive-message', {
-            from: socket.id,
-            encryptedMsg
-        });
-    });
-
-    socket.on('disconnect', () => {
-        users.delete(socket.id);
-        io.emit('user-list', Array.from(users.entries()).map(([id, data]) => ({
-            id,
-            username: data.username,
-            publicKey: data.publicKey
-        })));
-        console.log('User disconnected:', socket.id);
-    });
+  const auth = pusher.authenticate(socketId, channel, presenceData);
+  res.send(auth);
 });
 
-server.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+// Endpoint to trigger messages
+app.post('/api/messages', (req, res) => {
+  const { to, from, encryptedMsg, type } = req.body;
+  
+  // Trigger event on the recipient's private channel
+  pusher.trigger(`private-user-${to}`, 'client-receive-message', {
+    from,
+    encryptedMsg
+  });
+  
+  res.status(200).send('Sent');
+});
+
+// Endpoint to share keys
+app.post('/api/share-key', (req, res) => {
+  const { to, from, encryptedAESKey } = req.body;
+  
+  pusher.trigger(`private-user-${to}`, 'client-receive-aes-key', {
+    from,
+    encryptedAESKey
+  });
+  
+  res.status(200).send('Key Shared');
+});
+
+app.listen(PORT, () => {
+  console.log(`Server running on http://localhost:${PORT}`);
 });
