@@ -130,7 +130,7 @@ function updateUserList() {
 
 function setupIncomingEvents() {
     // Receive AES Key
-    privateChannel.bind('client-receive-aes-key', async ({ from, encryptedAESKey }) => {
+    privateChannel.bind('receive-aes-key', async ({ from, encryptedAESKey }) => {
         securityLog("Received encrypted AES key from partner.");
         securityLog("Decrypting AES key with MY RSA Private Key...", "log-encrypted");
 
@@ -147,7 +147,7 @@ function setupIncomingEvents() {
     });
 
     // Receive Message
-    privateChannel.bind('client-receive-message', async ({ from, encryptedMsg }) => {
+    privateChannel.bind('receive-message', async ({ from, encryptedMsg }) => {
         const partner = chatPartners.get(from);
         if (!partner || !partner.aesKey) return;
 
